@@ -1,5 +1,6 @@
 # Serverless Events Platform
 
+[![CI](https://github.com/KevinAndrey96/serverless-events-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/KevinAndrey96/serverless-events-platform/actions/workflows/ci.yml)
 [![Go Version](https://img.shields.io/badge/Go-1.20+-00ADD8?style=flat&logo=go)](https://golang.org)
 [![AWS Lambda](https://img.shields.io/badge/AWS-Lambda-FF9900?style=flat&logo=awslambda)](https://aws.amazon.com/lambda/)
 [![DynamoDB](https://img.shields.io/badge/Amazon-DynamoDB-4053D6?style=flat&logo=amazondynamodb)](https://aws.amazon.com/dynamodb/)
@@ -237,17 +238,28 @@ The frontend interacts with the Go backend via HTTP/REST contracts defined in `f
 
 ### 1. Root Monorepo Commands
 ```bash
+# Start local DynamoDB, Admin UI, MySQL & Mailpit
+make docker-up
+
 # Run all unit test suites
 make test
 
 # Compile all Go Lambda binaries
 make build
 
-# Clean build artifacts
-make clean
+# Stop local Docker environment
+make docker-down
 ```
 
-### 2. Backend Deployment (Go / AWS Lambda)
+### 2. Local Infrastructure Services (Docker Compose)
+| Service | Container Port | Host Port | Purpose / Dashboard |
+| :--- | :---: | :---: | :--- |
+| **DynamoDB Local** | `8000` | `8000` | Local AWS DynamoDB engine for offline Lambda invocation |
+| **DynamoDB Admin** | `8001` | `8001` | Web UI at [http://localhost:8001](http://localhost:8001) to inspect single-table items |
+| **MySQL 8.0** | `3306` | `3306` | Relational store for the Laravel administrative portal |
+| **Mailpit** | `1025 / 8025` | `1025 / 8025` | SMTP sink + Webmail at [http://localhost:8025](http://localhost:8025) for reminder emails |
+
+### 3. Backend Deployment (Go / AWS Lambda)
 Prerequisites: Go 1.20+, Serverless Framework v3 (`npm install -g serverless`), configured AWS CLI.
 ```bash
 cd backend/create
