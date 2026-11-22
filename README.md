@@ -184,7 +184,7 @@ The backend consolidates all domain entities into a single DynamoDB table to ach
 
 | Entity | Partition Key (`pk`) | Sort Key (`sk`) | GSI: `sk-index` (PK) | GSI: `eventid-index` (PK) | Attributes |
 |---|---|---|---|---|---|
-| **Event Metadata** | `Event#<UUID>` | `METADATA#EVENT` | `METADATA#EVENT` | — | `name`, `capacity`, `price`, `date`, `hour`, `status`, `bank`, `account` |
+| **Event Metadata** | `Event#<UUID>` | `METADATA#EVENT` | `METADATA#EVENT` | N/A | `name`, `capacity`, `price`, `date`, `hour`, `status`, `bank`, `account` |
 | **Attendee / Ticket** | `User#<UUID>` | `METADATA#USER` | `METADATA#USER` | `Event#<UUID>` | `name`, `lastname`, `email`, `phone`, `status`, `paymentstatus`, `scholarship` |
 
 ### Access Pattern Matrix
