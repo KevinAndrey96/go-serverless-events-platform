@@ -234,12 +234,27 @@ The frontend interacts with the Go backend via HTTP/REST contracts defined in `f
 
 ---
 
+## Architecture Decision Records (ADRs)
+
+The architectural choices, storage trade-offs, and concurrency mechanisms are formally documented in [`docs/adr/`](docs/adr/):
+
+- **[ADR-0001: Record Architecture Decisions using ADR Format](docs/adr/0001-record-architecture-decisions.md)**
+- **[ADR-0002: Amazon DynamoDB Single-Table Design Architecture](docs/adr/0002-dynamodb-single-table-design.md)**
+- **[ADR-0003: Compile-Time Dependency Injection using Google Wire](docs/adr/0003-compile-time-dependency-injection-with-wire.md)**
+- **[ADR-0004: Asynchronous Reminder & Notification Processing via SQS/EventBridge](docs/adr/0004-event-driven-asynchronous-processing-with-sqs-eventbridge.md)**
+- **[ADR-0005: Idempotency & Concurrency Control with DynamoDB Conditional Writes](docs/adr/0005-idempotency-and-conditional-writes.md)**
+
+---
+
 ## Quickstart & Local Setup
 
 ### 1. Root Monorepo Commands
 ```bash
 # Start local DynamoDB, Admin UI, MySQL & Mailpit
 make docker-up
+
+# Provision DynamoDB table schema, GSIs and seed data
+make seed-local
 
 # Run all unit test suites
 make test

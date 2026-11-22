@@ -1,4 +1,4 @@
-.PHONY: all test build build-backend clean docker-up docker-down help
+.PHONY: all test build build-backend clean docker-up docker-down seed-local help
 
 all: test build
 
@@ -7,6 +7,7 @@ help:
 	@echo "  make test          Run unit test suites across all services"
 	@echo "  make build         Build backend microservice binaries"
 	@echo "  make docker-up     Start local DynamoDB, MySQL, and Mailpit services"
+	@echo "  make seed-local    Initialize local DynamoDB schema and seed test fixtures"
 	@echo "  make docker-down   Stop and clean up local Docker containers"
 	@echo "  make clean         Remove build artifacts"
 
@@ -23,6 +24,10 @@ build-backend:
 docker-up:
 	@echo "==> Booting local DynamoDB, Admin UI, MySQL & Mailpit..."
 	docker compose up -d
+
+seed-local:
+	@echo "==> Provisioning DynamoDB tables & seed data..."
+	./scripts/setup-local-dynamodb.sh
 
 docker-down:
 	@echo "==> Stopping local Docker containers..."
