@@ -12,7 +12,7 @@
     ],
     "license": "proprietary",
     "require": {
-        "php": "^8.3",
+        "php": "^8.4",
         "aws/aws-sdk-php": "^3.408",
         "chillerlan/php-qrcode": "^6.0",
         "laravel/framework": "^13.17",

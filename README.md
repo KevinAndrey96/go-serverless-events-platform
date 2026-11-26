@@ -5,7 +5,7 @@
 ![AWS SAM](https://img.shields.io/badge/AWS-SAM%20%7C%20Lambda%20arm64-FF9900?logo=amazonaws&logoColor=white)
 ![DynamoDB](https://img.shields.io/badge/DynamoDB-single--table-4053D6?logo=amazondynamodb&logoColor=white)
 ![Laravel](https://img.shields.io/badge/Laravel-13-FF2D20?logo=laravel&logoColor=white)
-![PHP](https://img.shields.io/badge/PHP-8.3%20%7C%208.4%20%7C%208.5-777BB4?logo=php&logoColor=white)
+![PHP](https://img.shields.io/badge/PHP-8.4%20%7C%208.5-777BB4?logo=php&logoColor=white)
 
 Plataforma para publicar eventos, inscribir asistentes, validar pagos por transferencia, enviar la entrada con código QR y controlar el ingreso en la puerta escaneando el QR desde el navegador. La API es serverless (Go en AWS Lambda arm64, API Gateway HTTP API y DynamoDB) y el portal de inscripción y administración está hecho en Laravel 13.
 
@@ -149,7 +149,7 @@ make validate   # cfn-lint sobre template.yaml
 
 - **Go:** pruebas de tabla en paralelo para dominio, casos de uso y handlers, y pruebas de integración contra DynamoDB Local: 30 inscripciones simultáneas para 10 cupos, 5 escaneos simultáneos de la misma entrada y reclamos de recordatorios.
 - **Portal:** pruebas de funcionalidad con la API simulada (inscripción, comprobantes, roles, ingreso, correo con QR) y pruebas unitarias del cliente HTTP.
-- **CI:** lint y pruebas de Go, validación y compilación de la plantilla SAM, portal en PHP 8.3, 8.4 y 8.5, y un flujo de punta a punta sobre Docker Compose.
+- **CI:** lint y pruebas de Go, validación y compilación de la plantilla SAM, portal en PHP 8.4 y 8.5, y un flujo de punta a punta sobre Docker Compose.
 
 ## Desplegar en AWS
 
