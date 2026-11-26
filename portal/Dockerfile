@@ -1,5 +1,5 @@
 # Organizer and registration portal: Laravel 13 on PHP 8.4 with Apache.
-FROM node:24-alpine AS assets
+FROM node:26-alpine AS assets
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
