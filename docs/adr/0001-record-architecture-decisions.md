@@ -1,21 +1,18 @@
-# ADR-0001: Record Architecture Decisions using ADR Format
+# ADR-0001: Registrar las decisiones de arquitectura
 
-## Status
-`Accepted`
+## Estado
 
-## Context
-As the Serverless Events Platform scales across multiple serverless microservices (Go AWS Lambda) and frontend web portals (Laravel 9), architectural choices must be documented to prevent tribal knowledge loss, ease onboarding, and ensure that engineering trade-offs remain transparent.
+Aceptada.
 
-## Decision
-We adopt the Architecture Decision Record (ADR) framework following Michael Nygard's structure. Every architecturally significant decision (patterns, protocols, storage selection, concurrency models) will be recorded as a Markdown document in `docs/adr/`.
+## Contexto
 
-Each record contains:
-- **Title:** Descriptive identifier (`ADR-XXXX: Title`).
-- **Status:** `Proposed`, `Accepted`, `Deprecated`, or `Superseded`.
-- **Context:** The business and technical problem forcing the decision.
-- **Decision:** The chosen design, architecture, or pattern.
-- **Consequences:** Positive benefits, negative trade-offs, and mitigation strategies.
+La plataforma combina funciones Lambda en Go, una tabla DynamoDB, una API HTTP con autorización IAM y un portal Laravel. Varias decisiones (modelo de datos, control de concurrencia, autorización) no se deducen leyendo el código y conviene dejar escrito por qué se tomaron.
 
-## Consequences
-- **Positive:** Architectural alignment across teams, explicit rationale preservation, transparent trade-offs for code reviews and audits.
-- **Negative:** Additional documentation overhead when making architectural shifts.
+## Decisión
+
+Cada decisión con impacto en la arquitectura se documenta en `docs/adr/` con el formato de Michael Nygard: contexto, decisión y consecuencias. Una decisión reemplazada no se borra; se marca como sustituida y se enlaza la nueva.
+
+## Consecuencias
+
+- Quien llegue al proyecto entiende los compromisos sin depender de la memoria del equipo.
+- Cambiar una decisión exige escribir el ADR correspondiente.

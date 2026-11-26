@@ -1,0 +1,69 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - containedctx
+    - contextcheck
+    - depguard
+    - errcheck
+    - errname
+    - errorlint
+    - forcetypeassert
+    - gochecknoglobals
+    - gochecknoinits
+    - goconst
+    - govet
+    - ineffassign
+    - ireturn
+    - loggercheck
+    - makezero
+    - nakedret
+    - nilnil
+    - nlreturn
+    - nonamedreturns
+    - staticcheck
+    - unparam
+    - unused
+    - whitespace
+    - wrapcheck
+  settings:
+    depguard:
+      rules:
+        main:
+          deny:
+            - pkg: github.com/aws/aws-sdk-go/
+              desc: use github.com/aws/aws-sdk-go-v2
+            - pkg: github.com/pkg/errors
+              desc: use the standard errors package and fmt.Errorf with %w
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+    nlreturn:
+      block-size: 1
+    wrapcheck:
+      ignore-package-globs:
+        - github.com/KevinAndrey96/go-serverless-events-platform/backend/internal/*
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - goconst
+          - wrapcheck
+      - path: _test\.go
+        linters:
+          - govet
+        text: "shadow:"
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/KevinAndrey96/go-serverless-events-platform

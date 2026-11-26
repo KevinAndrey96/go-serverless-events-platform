@@ -1,47 +1,85 @@
-version: '3.8'
-
+# Full local stack: DynamoDB Local, the Go API dev server, the Laravel portal, MySQL and Mailpit.
+#   docker compose up --build
+#   Portal:  http://localhost:8081  (admin@example.com / admin-local-2026)
+#   API:     http://localhost:8080
+#   Correos: http://localhost:8025
 services:
-  dynamodb-local:
-    image: amazon/dynamodb-local:latest
-    container_name: serverless_events_dynamodb
-    ports:
-      - "8000:8000"
-    command: "-jar DynamoDBLocal.jar -sharedDb -inMemory"
-    volumes:
-      - dynamodb_data:/home/dynamodblocal/data
+  dynamodb:
+    image: amazon/dynamodb-local:3.3.2
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-inMemory"]
+    ports: ["8000:8000"]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8000'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
-  dynamodb-admin:
-    image: aaronshaf/dynamodb-admin:latest
-    container_name: serverless_events_dynamodb_admin
-    ports:
-      - "8001:8001"
+  api:
+    build: ./backend
     environment:
-      - DYNAMO_ENDPOINT=http://dynamodb-local:8000
+      TABLE_NAME: events
+      DYNAMODB_ENDPOINT: http://dynamodb:8000
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+    ports: ["8080:8080"]
     depends_on:
-      - dynamodb-local
+      dynamodb:
+        condition: service_healthy
 
   mysql:
-    image: mysql:8.0
-    container_name: serverless_events_mysql
-    ports:
-      - "3306:3306"
+    image: mysql:8.4
     environment:
-      MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: events_portal
-      MYSQL_USER: events_user
-      MYSQL_PASSWORD: events_password
-    volumes:
-      - mysql_data:/var/lib/mysql
+      MYSQL_USER: events_portal
+      MYSQL_PASSWORD: events-portal-local
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+    volumes: ["mysql-data:/var/lib/mysql"]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uevents_portal", "-pevents-portal-local"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
 
   mailpit:
-    image: axllent/mailpit:latest
-    container_name: serverless_events_mailpit
-    ports:
-      - "1025:1025" # SMTP server for reminder worker
-      - "8025:8025" # Webmail UI for viewing sent notification emails
+    image: axllent/mailpit:v1.34
+    ports: ["8025:8025"]
+
+  portal:
+    build:
+      context: ./portal
+      target: runtime
     environment:
-      MP_MAX_MESSAGES: 500
+      APP_ENV: local
+      APP_DEBUG: "true"
+      APP_URL: http://localhost:8081
+      LOG_CHANNEL: stderr
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_DATABASE: events_portal
+      DB_USERNAME: events_portal
+      DB_PASSWORD: events-portal-local
+      SESSION_DRIVER: database
+      CACHE_STORE: database
+      MAIL_MAILER: smtp
+      MAIL_HOST: mailpit
+      MAIL_PORT: 1025
+      MAIL_FROM_ADDRESS: eventos@example.com
+      EVENTS_API_URL: http://api:8080
+      EVENTS_API_SIGN: "false"
+      RUN_MIGRATIONS: "true"
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_PASSWORD: admin-local-2026
+    ports: ["8081:8080"]
+    volumes: ["receipts:/var/www/html/storage/app/private"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      api:
+        condition: service_started
+      mailpit:
+        condition: service_started
 
 volumes:
-  dynamodb_data:
-  mysql_data:
+  mysql-data:
+  receipts:

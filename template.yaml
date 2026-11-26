@@ -1,0 +1,295 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Event registration platform - Go on AWS Lambda, API Gateway HTTP API, DynamoDB and SES
+
+Parameters:
+  MailFrom:
+    Type: String
+    Description: Sender address of the reminders; it must belong to the SES identity below
+  SesIdentity:
+    Type: String
+    Description: Verified SES identity (domain or email address) the reminders are sent from
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+    AllowedValues: [7, 14, 30, 60, 90, 180, 365]
+
+Globals:
+  Function:
+    Runtime: provided.al2023
+    Architectures: [arm64]
+    Handler: bootstrap
+    CodeUri: backend/
+    MemorySize: 128
+    Timeout: 10
+    Tracing: Active
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref EventsTable
+
+Resources:
+  EventsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: PK, AttributeType: S }
+        - { AttributeName: SK, AttributeType: S }
+        - { AttributeName: GSI1PK, AttributeType: S }
+        - { AttributeName: GSI1SK, AttributeType: S }
+      KeySchema:
+        - { AttributeName: PK, KeyType: HASH }
+        - { AttributeName: SK, KeyType: RANGE }
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1
+          KeySchema:
+            - { AttributeName: GSI1PK, KeyType: HASH }
+            - { AttributeName: GSI1SK, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  ApiAccessLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: !Ref LogRetentionDays
+
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Auth:
+        EnableIamAuthorizer: true
+        DefaultAuthorizer: AWS_IAM
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 50
+        ThrottlingRateLimit: 25
+      RouteSettings:
+        "POST /events/{eventId}/attendees":
+          ThrottlingBurstLimit: 10
+          ThrottlingRateLimit: 5
+      AccessLogSettings:
+        DestinationArn: !GetAtt ApiAccessLogs.Arn
+        Format: '{"requestId":"$context.requestId","ip":"$context.identity.sourceIp","caller":"$context.identity.caller","route":"$context.routeKey","status":"$context.status","latencyMs":"$context.responseLatency","integrationError":"$context.integrationErrorMessage"}'
+
+  # Organizers call the admin routes through the portal, which signs requests with SigV4.
+  # Attach this policy to the IAM role or user of the portal.
+  PortalInvokePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Lets the organizer portal call the admin routes of the events API
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: execute-api:Invoke
+            Resource: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*/admin/*
+
+  ListEventsFunction:
+    Type: AWS::Serverless::Function
+    Metadata: { BuildMethod: makefile }
+    Properties:
+      Description: GET /events - upcoming enabled events
+      LoggingConfig: { LogFormat: JSON, LogGroup: !Ref ListEventsLogs }
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: dynamodb:Query
+              Resource: !Sub ${EventsTable.Arn}/index/GSI1
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: GET
+            Path: /events
+            Auth: { Authorizer: NONE }
+  ListEventsLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: { RetentionInDays: !Ref LogRetentionDays }
+
+  RegisterAttendeeFunction:
+    Type: AWS::Serverless::Function
+    Metadata: { BuildMethod: makefile }
+    Properties:
+      Description: POST /events/{eventId}/attendees - capacity-safe registration
+      LoggingConfig: { LogFormat: JSON, LogGroup: !Ref RegisterAttendeeLogs }
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: [dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:GetItem]
+              Resource: !GetAtt EventsTable.Arn
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: POST
+            Path: /events/{eventId}/attendees
+            Auth: { Authorizer: NONE }
+  RegisterAttendeeLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: { RetentionInDays: !Ref LogRetentionDays }
+
+  ListEventsAdminFunction:
+    Type: AWS::Serverless::Function
+    Metadata: { BuildMethod: makefile }
+    Properties:
+      Description: GET /admin/events - every event
+      LoggingConfig: { LogFormat: JSON, LogGroup: !Ref ListEventsAdminLogs }
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: dynamodb:Query
+              Resource: !Sub ${EventsTable.Arn}/index/GSI1
+      Events:
+        Api:
+          Type: HttpApi
+          Properties: { ApiId: !Ref HttpApi, Method: GET, Path: /admin/events }
+  ListEventsAdminLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: { RetentionInDays: !Ref LogRetentionDays }
+
+  CreateEventFunction:
+    Type: AWS::Serverless::Function
+    Metadata: { BuildMethod: makefile }
+    Properties:
+      Description: POST /admin/events - create an event
+      LoggingConfig: { LogFormat: JSON, LogGroup: !Ref CreateEventLogs }
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: dynamodb:PutItem
+              Resource: !GetAtt EventsTable.Arn
+      Events:
+        Api:
+          Type: HttpApi
+          Properties: { ApiId: !Ref HttpApi, Method: POST, Path: /admin/events }
+  CreateEventLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: { RetentionInDays: !Ref LogRetentionDays }
+
+  ChangeEventStatusFunction:
+    Type: AWS::Serverless::Function
+    Metadata: { BuildMethod: makefile }
+    Properties:
+      Description: PATCH /admin/events/{eventId}/status - enable or cancel an event
+      LoggingConfig: { LogFormat: JSON, LogGroup: !Ref ChangeEventStatusLogs }
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: dynamodb:UpdateItem
+              Resource: !GetAtt EventsTable.Arn
+      Events:
+        Api:
+          Type: HttpApi
+          Properties: { ApiId: !Ref HttpApi, Method: PATCH, Path: "/admin/events/{eventId}/status" }
+  ChangeEventStatusLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: { RetentionInDays: !Ref LogRetentionDays }
+
+  ListAttendeesFunction:
+    Type: AWS::Serverless::Function
+    Metadata: { BuildMethod: makefile }
+    Properties:
+      Description: GET /admin/events/{eventId}/attendees - attendees of an event
+      LoggingConfig: { LogFormat: JSON, LogGroup: !Ref ListAttendeesLogs }
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: [dynamodb:GetItem, dynamodb:Query]
+              Resource: !GetAtt EventsTable.Arn
+      Events:
+        Api:
+          Type: HttpApi
+          Properties: { ApiId: !Ref HttpApi, Method: GET, Path: "/admin/events/{eventId}/attendees" }
+  ListAttendeesLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: { RetentionInDays: !Ref LogRetentionDays }
+
+  ChangePaymentStatusFunction:
+    Type: AWS::Serverless::Function
+    Metadata: { BuildMethod: makefile }
+    Properties:
+      Description: PATCH /admin/events/{eventId}/attendees/{attendeeId}/payment - review a receipt
+      LoggingConfig: { LogFormat: JSON, LogGroup: !Ref ChangePaymentStatusLogs }
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: dynamodb:UpdateItem
+              Resource: !GetAtt EventsTable.Arn
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: PATCH
+            Path: /admin/events/{eventId}/attendees/{attendeeId}/payment
+  ChangePaymentStatusLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: { RetentionInDays: !Ref LogRetentionDays }
+
+  CheckInFunction:
+    Type: AWS::Serverless::Function
+    Metadata: { BuildMethod: makefile }
+    Properties:
+      Description: POST /admin/check-ins - admit the holder of a QR ticket once
+      LoggingConfig: { LogFormat: JSON, LogGroup: !Ref CheckInLogs }
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: [dynamodb:UpdateItem, dynamodb:GetItem]
+              Resource: !GetAtt EventsTable.Arn
+      Events:
+        Api:
+          Type: HttpApi
+          Properties: { ApiId: !Ref HttpApi, Method: POST, Path: /admin/check-ins }
+  CheckInLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: { RetentionInDays: !Ref LogRetentionDays }
+
+  SendRemindersFunction:
+    Type: AWS::Serverless::Function
+    Metadata: { BuildMethod: makefile }
+    Properties:
+      Description: Hourly - one reminder per attendee of the events starting in the next 24 hours
+      Timeout: 300
+      LoggingConfig: { LogFormat: JSON, LogGroup: !Ref SendRemindersLogs }
+      ReservedConcurrentExecutions: 1
+      Environment:
+        Variables:
+          MAIL_FROM: !Ref MailFrom
+          TIME_ZONE: America/Bogota
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action: dynamodb:Query
+              Resource: [!GetAtt EventsTable.Arn, !Sub "${EventsTable.Arn}/index/GSI1"]
+            - Effect: Allow
+              Action: dynamodb:UpdateItem
+              Resource: !GetAtt EventsTable.Arn
+            - Effect: Allow
+              Action: ses:SendEmail
+              Resource: !Sub arn:${AWS::Partition}:ses:${AWS::Region}:${AWS::AccountId}:identity/${SesIdentity}
+      Events:
+        Hourly:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: rate(1 hour)
+            RetryPolicy: { MaximumRetryAttempts: 0 }
+  SendRemindersLogs:
+    Type: AWS::Logs::LogGroup
+    Properties: { RetentionInDays: !Ref LogRetentionDays }
+
+Outputs:
+  ApiUrl:
+    Description: Base URL of the events API
+    Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}
+  TableName:
+    Value: !Ref EventsTable
+  PortalInvokePolicyArn:
+    Description: Attach to the IAM principal of the organizer portal
+    Value: !Ref PortalInvokePolicy

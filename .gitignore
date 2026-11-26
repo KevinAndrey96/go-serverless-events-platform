@@ -1,52 +1,15 @@
-# ==========================================
-# Root Monorepo Gitignore
-# ==========================================
-
-# OS & Editor
 .DS_Store
-Thumbs.db
 .idea/
 .vscode/
-*.swp
-*.swo
 
-# Environment Variables & Secrets
 .env
 .env.*
 !.env.example
 
-# ==========================================
-# Backend (Go / Serverless)
-# ==========================================
-backend/bin/
-backend/bootstrap
-backend/.serverless/
-backend/*.exe
-backend/*.test
-backend/*.out
-backend/package-lock.json
-backend/node_modules/
+# AWS SAM
+.aws-sam/
+samconfig.toml
 
-# ==========================================
-# Frontend (Laravel 9 / Vite / Node)
-# ==========================================
-frontend/vendor/
-frontend/node_modules/
-frontend/public/hot
-frontend/public/storage
-frontend/public/build
-frontend/storage/*.key
-frontend/storage/app/public/*
-!frontend/storage/app/public/.gitignore
-frontend/storage/framework/cache/*
-!frontend/storage/framework/cache/.gitignore
-frontend/storage/framework/sessions/*
-!frontend/storage/framework/sessions/.gitignore
-frontend/storage/framework/views/*
-!frontend/storage/framework/views/.gitignore
-frontend/storage/framework/testing/*
-!frontend/storage/framework/testing/.gitignore
-frontend/storage/logs/*.log
-frontend/.phpunit.result.cache
-frontend/npm-debug.log
-frontend/yarn-error.log
+# Go
+backend/bin/
+backend/coverage.out

@@ -1,38 +1,40 @@
-.PHONY: all test build build-backend clean docker-up docker-down seed-local help
-
-all: test build
+.PHONY: help up down test test-backend test-portal lint validate build deploy
 
 help:
-	@echo "Serverless Events Platform - Monorepo Commands:"
-	@echo "  make test          Run unit test suites across all services"
-	@echo "  make build         Build backend microservice binaries"
-	@echo "  make docker-up     Start local DynamoDB, MySQL, and Mailpit services"
-	@echo "  make seed-local    Initialize local DynamoDB schema and seed test fixtures"
-	@echo "  make docker-down   Stop and clean up local Docker containers"
-	@echo "  make clean         Remove build artifacts"
+	@echo "make up            Levanta DynamoDB Local, la API, el portal, MySQL y Mailpit"
+	@echo "make down          Detiene el entorno local y borra sus volúmenes"
+	@echo "make test          Pruebas de la API (con DynamoDB Local) y del portal"
+	@echo "make lint          golangci-lint, Larastan y Pint"
+	@echo "make validate      Valida la plantilla SAM con cfn-lint"
+	@echo "make build         Compila las funciones Lambda (arm64) con SAM"
+	@echo "make deploy        Despliega el stack con SAM (pide los parámetros la primera vez)"
 
-test:
-	@echo "==> Running Go backend unit tests..."
-	cd backend && go test -v -race ./pkg/...
+up:
+	docker compose up --build -d
 
-build: build-backend
+down:
+	docker compose down -v
 
-build-backend:
-	@echo "==> Compiling Go AWS Lambda microservices..."
-	cd backend && make build
+test: test-backend test-portal
 
-docker-up:
-	@echo "==> Booting local DynamoDB, Admin UI, MySQL & Mailpit..."
-	docker compose up -d
+test-backend:
+	docker compose up -d dynamodb
+	cd backend && DYNAMODB_ENDPOINT=http://localhost:8000 go test -race -count=1 ./...
 
-seed-local:
-	@echo "==> Provisioning DynamoDB tables & seed data..."
-	./scripts/setup-local-dynamodb.sh
+test-portal:
+	docker build --target test -t events-portal-test portal
+	docker run --rm events-portal-test
 
-docker-down:
-	@echo "==> Stopping local Docker containers..."
-	docker compose down
+lint:
+	cd backend && golangci-lint run ./...
+	docker build --target test -t events-portal-test portal
+	docker run --rm events-portal-test sh -c "vendor/bin/phpstan analyse --memory-limit=1G --no-progress && vendor/bin/pint --test"
 
-clean:
-	@echo "==> Cleaning build artifacts..."
-	cd backend && make clean
+validate:
+	sam validate --lint
+
+build:
+	sam build
+
+deploy: build
+	sam deploy --guided

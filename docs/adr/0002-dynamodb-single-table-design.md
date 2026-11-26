@@ -1,33 +1,30 @@
-# ADR-0002: Amazon DynamoDB Single-Table Design Architecture
+# ADR-0002: Diseño de tabla única en DynamoDB
 
-## Status
-`Accepted`
+## Estado
 
-## Context
-Event management systems experience bursty, high-concurrency traffic during ticket sales and live venue check-ins (1,000+ requests per second per venue). Traditional relational databases face connection pool exhaustion (RDBMS connection starvation in serverless environments) and degraded query performance due to multi-table `JOIN` operations across `Events`, `Users`, `Tickets`, and `Attendees`.
+Aceptada.
 
-Additionally, hosting individual DynamoDB tables per entity leads to fragmented read/write capacity allocation, higher costs, and requires multiple round-trip HTTP requests to assemble aggregate domain models.
+## Contexto
 
-## Decision
-We adopt **Amazon DynamoDB Single-Table Design** across the platform (`EventsPlatformTable`). All core entities (`Event`, `User`, `EventUser`, `CheckIn`) are co-located within a single unified table schema utilizing composite Partition Keys (`pk`) and Sort Keys (`sk`), supplemented by two Global Secondary Indexes (`sk-index` and `eventid-index`).
+Los patrones de acceso son pocos y conocidos: listar eventos por fecha, leer un evento con sus asistentes, inscribir sin sobrecupo, marcar pagos y validar entradas en la puerta. Las inscripciones llegan en ráfagas cuando se publica un evento, y el ingreso concentra lecturas y escrituras en pocos minutos. Una base relacional detrás de Lambda obliga a administrar conexiones; DynamoDB escala por solicitud y cobra por uso.
 
-### Schema Design & Partition Key Patterns:
-| Entity | Partition Key (`pk`) | Sort Key (`sk`) | Description |
-| :--- | :--- | :--- | :--- |
-| **Event Metadata** | `EVENT#<event_id>` | `METADATA#<event_id>` | Core event details (name, capacity, date, status). |
-| **Event Registration** | `EVENT#<event_id>` | `USER#<user_id>` | Attendee registration & payment state. |
-| **User Profile** | `USER#<user_id>` | `PROFILE#<user_id>` | User contact & authentication info. |
-| **Live QR Check-in** | `EVENT#<event_id>` | `CHECKIN#<ticket_id>` | Real-time entry validation and scanner timestamp. |
+## Decisión
 
-### Global Secondary Indexes (GSIs):
-1. **`sk-index` (GSI 1):** Inverted partition index querying all events associated with a specific `USER#<user_id>` without triggering a full table scan.
-2. **`eventid-index` (GSI 2):** Sparse projection index optimized for batch attendee retrieval and scheduled reminder notifications.
+Una sola tabla con llave compuesta `PK`/`SK` y un índice global `GSI1`:
 
-## Consequences
-- **Positive:**
-  - **Predictable Single-Digit Latency:** Operational queries return in <10ms regardless of database volume by pre-computing access patterns.
-  - **Single Network Round-Trip:** An event and all its attendees can be retrieved in a single `Query` call (`pk = EVENT#123 AND begins_with(sk, "USER#")`).
-  - **Serverless Connection Resilience:** DynamoDB communicates over stateless HTTP/2 (HTTPS), eliminating connection pooling exhaustion common in relational databases under Lambda scaling.
-- **Negative:**
-  - **Rigid Query Patterns:** Ad-hoc analytics or multi-dimensional filters require ETL streaming (DynamoDB Streams to Athena / OpenSearch).
-  - **Learning Curve:** Developers must model around access patterns rather than normalized relational schemas.
+| Entidad | PK | SK | GSI1PK | GSI1SK |
+| :--- | :--- | :--- | :--- | :--- |
+| Evento | `EVENT#<id>` | `EVENT` | `EVENTS` | `<inicio UTC>#<id>` |
+| Asistente | `EVENT#<id>` | `ATTENDEE#<asistente>` | | |
+| Guarda de correo | `EVENT#<id>` | `EMAIL#<correo>` | | |
+
+- El evento y sus asistentes comparten partición: la lista de asistentes es un solo `Query`.
+- `GSI1` ordena los eventos por fecha de inicio; el recordatorio consulta un rango de fechas sin `Scan`.
+- La guarda de correo convierte "una inscripción por correo y evento" en una escritura condicional.
+- `startsAtUnix` guarda el inicio como número para compararlo en condiciones sin depender de zonas horarias.
+
+## Consecuencias
+
+- Todas las operaciones son lecturas por llave o consultas acotadas, con latencia estable.
+- `GSI1` concentra todos los eventos en una partición (`EVENTS`). Es adecuado para cientos de eventos activos; con volúmenes mayores habría que fragmentar la llave por mes.
+- Los reportes ad hoc requieren exportar los datos (por ejemplo, exportación a S3 y Athena).

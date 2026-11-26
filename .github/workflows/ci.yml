@@ -1,83 +1,119 @@
-name: CI - Monorepo Quality & Build Verification
+name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main]
   pull_request:
-    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  backend-go:
-    name: Backend (Go AWS Serverless Lambdas)
+  backend:
+    name: API en Go
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: backend
-
+    services:
+      dynamodb:
+        image: amazon/dynamodb-local:3.3.2
+        ports: ["8000:8000"]
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
-          go-version: '1.21'
+          go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.11.4
+          working-directory: backend
+      - run: go mod verify
+      - name: Pruebas (unitarias e integración con DynamoDB Local)
+        env:
+          DYNAMODB_ENDPOINT: http://localhost:8000
+        run: go test -race -count=1 -coverprofile=coverage.out ./...
+      - run: go tool cover -func=coverage.out | tail -1
 
-      - name: Verify Dependencies
-        run: go mod verify
-
-      - name: Run Unit Tests with Race Detector
-        run: go test -v -race ./...
-
-      - name: Compile Lambda Binaries (Linux amd64)
-        run: |
-          mkdir -p bin
-          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/create ./create/v1
-          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/show ./show/v1
-          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/change_status ./change_status/v1
-          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/change_pay_status ./change_pay_status/v1
-          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/event-users ./event-users/v1
-          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o bin/reminder ./reminder/v1
-
-  frontend-laravel:
-    name: Frontend (Laravel 9 Portal & Build)
+  infrastructure:
+    name: Plantilla SAM
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - uses: aws-actions/setup-sam@v3
+        with:
+          use-installer: true
+      - run: pip install cfn-lint
+      - run: cfn-lint template.yaml
+      - run: sam validate --lint --region us-east-1
+      - run: sam build
+      - name: Binarios arm64
+        run: file .aws-sam/build/*/bootstrap | tee /dev/stderr | grep -c "ARM aarch64" | grep -qx 9
+
+  portal:
+    name: Portal Laravel (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ["8.3", "8.4", "8.5"]
     defaults:
       run:
-        working-directory: frontend
-
+        working-directory: portal
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Set up PHP
-        uses: shivammathur/setup-php@v2
+      - uses: actions/checkout@v7
+      - uses: shivammathur/setup-php@2.40.0
         with:
-          php-version: '8.2'
-          extensions: mbstring, xml, ctype, iconv, intl, pdo_sqlite, pdo_mysql, gd
+          php-version: ${{ matrix.php }}
+          extensions: gd, pdo_sqlite, zip
           coverage: none
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - run: composer install --no-interaction --no-progress --prefer-dist
+      - run: vendor/bin/pint --test
+      - run: vendor/bin/phpstan analyse --memory-limit=1G --no-progress
+      - run: vendor/bin/phpunit
+      - uses: actions/setup-node@v7
+        if: matrix.php == '8.4'
         with:
-          node-version: '18'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          node-version: 24
+          cache: npm
+          cache-dependency-path: portal/package-lock.json
+      - if: matrix.php == '8.4'
+        run: npm ci && npm run build
 
-      - name: Install Frontend Dependencies
-        run: npm ci
-
-      - name: Build Frontend Assets (Vite)
-        run: npm run build
-
-      - name: Install Composer Dependencies
-        run: composer install --prefer-dist --no-interaction --no-progress
-
-      - name: Prepare Laravel Environment
+  compose:
+    name: Entorno Docker completo
+    runs-on: ubuntu-latest
+    needs: [backend, portal]
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker compose up -d --build --wait --wait-timeout 300
+      - name: Flujo de punta a punta
+        shell: bash
         run: |
-          cp .env.example .env
-          php artisan key:generate
-
-      - name: Run PHP Syntax & Lint Check
-        run: find app routes -name "*.php" -exec php -l {} \;
+          set -euo pipefail
+          starts=$(date -u -d '+3 days' +%Y-%m-%dT%H:%M:%SZ)
+          curl -fsS --retry 15 --retry-connrefused --retry-delay 2 localhost:8080/healthz
+          event=$(curl -fsS -X POST localhost:8080/admin/events \
+            -d "{\"name\":\"Evento de humo\",\"startsAt\":\"$starts\",\"capacity\":5,\"priceCop\":0}")
+          id=$(echo "$event" | jq -r .id)
+          curl -fsS -X POST "localhost:8080/events/$id/attendees" \
+            -d '{"firstName":"Ana","lastName":"Pérez","email":"ana@example.com"}' | jq -e '.paymentStatus == "paid"'
+          curl -fsS localhost:8081/up
+          curl -fsS localhost:8081/ | grep -q "Evento de humo"
+          curl -fsS "localhost:8081/eventos/$id/inscripcion" | grep -q "Confirmar inscripción"
+      - if: failure()
+        run: docker compose logs
